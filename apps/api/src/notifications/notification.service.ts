@@ -238,7 +238,13 @@ export class NotificationService {
             entityType: "Tender",
             entityId: tender.id,
           },
-          { title: tender.title, referenceNumber: tender.referenceNumber },
+          {
+            tenderTitle: tender.title,
+            tenderReference: tender.referenceNumber,
+            submissionDeadline: tender.submissionDeadline
+              ? tender.submissionDeadline.toISOString()
+              : "",
+          },
         );
       }
     } catch (error) {
@@ -283,7 +289,7 @@ export class NotificationService {
             entityType: "Tender",
             entityId: tender.id,
           },
-          { title: tender.title, referenceNumber: tender.referenceNumber },
+          { tenderTitle: tender.title, tenderReference: tender.referenceNumber },
         );
       }
     } catch (error) {
@@ -330,7 +336,7 @@ export class NotificationService {
             entityType: "Tender",
             entityId: tender.id,
           },
-          { title: tender.title, referenceNumber: tender.referenceNumber, amendmentTitle },
+          { tenderTitle: tender.title, tenderReference: tender.referenceNumber, amendmentTitle, deadlineChange: "" },
         );
       }
     } catch (error) {

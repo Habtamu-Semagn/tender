@@ -359,6 +359,8 @@ export class AwardsService {
         {
           userId: member.userId,
           type: "AWARD_PUBLISHED",
+          // title/body are re-rendered from the AWARD_PUBLISHED template inside
+          // create(); these are only fallbacks if the template is missing.
           title: `Award published: ${tender?.title ?? "tender"}`,
           body: `Your organization has been awarded tender ${tender?.referenceNumber ?? ""}.`,
           actionUrl: `/tenders/${tenderId}`,
@@ -366,7 +368,12 @@ export class AwardsService {
           entityId: tenderId,
           emailOnlyInApp: true,
         },
-        { referenceNumber: tender?.referenceNumber ?? "", title: tender?.title ?? "" },
+        // Keys MUST match the placeholders the AWARD_PUBLISHED template renders
+        // (tenderTitle / tenderReference), or they interpolate to "undefined".
+        {
+          tenderTitle: tender?.title ?? "",
+          tenderReference: tender?.referenceNumber ?? "",
+        },
       );
     }
   }

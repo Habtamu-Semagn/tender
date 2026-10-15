@@ -1,8 +1,9 @@
 # Chereta — Implementation Plan
 
-Status: **Phases 1–6 complete** (foundation, auth, organizations + documents,
-tenders, bids, evaluations + awards). Backend builds clean, boots, and is verified
-end-to-end against a live PostgreSQL. Phase 7 (notifications + dashboards) is next.
+Status: **Phases 1–7 complete** (foundation, auth, organizations + documents,
+tenders, bids, evaluations + awards, notifications + dashboards). Backend builds
+clean, boots, and is verified end-to-end against a live PostgreSQL. Phase 8 (UI
+polish + localization) is next.
 
 ## 1. Current project state
 
@@ -210,6 +211,21 @@ source.
   Publishing an approved award moved the tender to AWARDED. Weighted totals are
   recomputed server-side (verified: scores 80/70/90 of 100 at weights 50/20/30 →
   stored total 81.00) and covered by 6 unit tests.
+- **Notifications centre** — list (paginated, newest first), unread-count,
+  mark-one-read, mark-all-read, all scoped to the caller. Verified live: unread
+  drops 1→0 after marking read; a **different user cannot mark another's
+  notification read** (returns `updated:false`); unauthenticated → 401.
+- **Dashboards** — supplier / publisher / evaluator, every figure from a live
+  query scoped to the caller. Verified live that **each dashboard count equals a
+  direct SQL count** on the same filter (e.g. supplier `activeBids:3` =
+  DRAFT(2)+SUBMITTED(1); publisher `totalBidsReceived:2` = non-draft bids on its
+  tenders; evaluator `submitted:1`).
+- **Notification template-data fix** — a real bug where the tender notify methods
+  passed templateData under `title`/`referenceNumber` while the templates
+  interpolated `tenderTitle`/`tenderReference`, blanking every tender/award email
+  body to "undefined". Fixed all call sites to the correct keys; verified a fresh
+  award notification now renders the real reference and title. 5 new unit tests
+  pin the template↔templateData key contract.
 - **Seed** — `npm run db:seed` loads 10 categories, 4 users, 3 organizations, and
   5 realistic Ethiopian tenders with eligibility, required documents, and weighted
   evaluation criteria. Dev-only password `DevOnly!Password1`.

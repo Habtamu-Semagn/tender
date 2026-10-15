@@ -16,6 +16,7 @@ import { OrganizationsModule } from "./organizations/organizations.module.js";
 import { TendersModule } from "./tenders/tenders.module.js";
 import { BidsModule } from "./bids/bids.module.js";
 import { EvaluationsModule } from "./evaluations/evaluations.module.js";
+import { DashboardsModule } from "./dashboards/dashboards.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
 import { NotificationsModule } from "./notifications/notifications.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
@@ -98,6 +99,7 @@ import { RequestIdInterceptor } from "./common/interceptors/request-id.intercept
     TendersModule,
     BidsModule,
     EvaluationsModule,
+    DashboardsModule,
     DocumentsModule,
     NotificationsModule,
     JobsModule,
