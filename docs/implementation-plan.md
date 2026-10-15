@@ -1,8 +1,8 @@
 # Chereta — Implementation Plan
 
-Status: **Phases 1–5 complete** (foundation, auth, organizations + documents,
-tenders, bids). Backend builds clean, boots, and is verified end-to-end against a
-live PostgreSQL. Phase 6 (evaluations + awards) is next.
+Status: **Phases 1–6 complete** (foundation, auth, organizations + documents,
+tenders, bids, evaluations + awards). Backend builds clean, boots, and is verified
+end-to-end against a live PostgreSQL. Phase 7 (notifications + dashboards) is next.
 
 ## 1. Current project state
 
@@ -199,6 +199,17 @@ source.
 - **Bid state machine** — 13 unit tests cover the confidential lifecycle
   (contents sealed until OPENED), deadline enforcement, and role gates (a bidder
   cannot open their own bid; only an admin awards).
+- **Evaluations + awards** — assign an evaluator (publisher+), declare
+  conflict-of-interest, score with server-computed weighted totals, submit
+  (recomputes the total, requires COI). Recommend a bid (publisher+), approve
+  (admin-only), publish. Security verified live: an **unassigned** evaluator
+  scoring or reading an assignment → 403; submitting without a COI declaration →
+  409; a score over the criterion maximum → 400; scoring after submit → 409; a
+  **non-member approving an award → 403**; and an **unapproved award cannot be
+  published** — a REJECTED decision and an already-published decision both → 409.
+  Publishing an approved award moved the tender to AWARDED. Weighted totals are
+  recomputed server-side (verified: scores 80/70/90 of 100 at weights 50/20/30 →
+  stored total 81.00) and covered by 6 unit tests.
 - **Seed** — `npm run db:seed` loads 10 categories, 4 users, 3 organizations, and
   5 realistic Ethiopian tenders with eligibility, required documents, and weighted
   evaluation criteria. Dev-only password `DevOnly!Password1`.
