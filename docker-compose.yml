@@ -1,0 +1,117 @@
+# Chereta — local development infrastructure.
+#
+# Host port allocation (other stacks on this machine already own 5432, 5433,
+# 3000, 3001, 6379, 8080):
+#   PostgreSQL      -> 5541
+#   API             -> 4001
+#   Web             -> 3002
+#
+# Usage:
+#   docker compose up -d postgres     # database only (most common)
+#   docker compose up -d              # postgres + api + web
+#   docker compose down               # stop
+#   docker compose down -v            # stop and DESTROY data volumes
+
+name: chereta
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chereta-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chereta}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chereta_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-chereta}
+      # Deterministic collation so indexes/ordering behave the same everywhere.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      # Host 5541 -> container 5432. 5432 is taken by another stack.
+      - "${POSTGRES_HOST_PORT:-5541}:5432"
+    volumes:
+      - chereta_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chereta} -d ${POSTGRES_DB:-chereta}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - chereta_net
+
+  # Shadow database used by `prisma migrate dev` only. Never used at runtime.
+  postgres-shadow:
+    image: postgres:16-alpine
+    container_name: chereta-postgres-shadow
+    restart: "no"
+    profiles: ["migrate"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chereta}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chereta_dev_password}
+      POSTGRES_DB: chereta_shadow
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - chereta_net
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    container_name: chereta-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-chereta}:${POSTGRES_PASSWORD:-chereta_dev_password}@postgres:5432/${POSTGRES_DB:-chereta}?schema=public
+      PORT: "4001"
+      API_BASE_URL: http://localhost:4001
+      WEB_BASE_URL: http://localhost:3002
+      CORS_ORIGINS: http://localhost:3002
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_only_access_secret_change_me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_only_refresh_secret_change_me}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_LOCAL_PATH: /data/storage
+      EMAIL_DRIVER: ${EMAIL_DRIVER:-log}
+    ports:
+      - "${API_PORT:-4001}:4001"
+    volumes:
+      - chereta_storage:/data/storage
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - chereta_net
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4001}
+    container_name: chereta-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4001}
+      PORT: "3002"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${WEB_PORT:-3002}:3002"
+    networks:
+      - chereta_net
+
+volumes:
+  chereta_pgdata:
+  chereta_storage:
+
+networks:
+  chereta_net:
+    driver: bridge

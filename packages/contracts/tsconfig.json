@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "target": "ES2023",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

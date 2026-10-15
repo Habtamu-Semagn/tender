@@ -1,0 +1,35 @@
+{
+  "name": "chereta",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chereta — Ethiopian tender and bidding platform (NestJS + Next.js + Prisma + PostgreSQL)",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "packages/contracts",
+    "apps/api",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev:api": "npm run dev --workspace @chereta/api",
+    "dev:web": "npm run dev --workspace @chereta/web",
+    "build": "npm run build --workspace @chereta/contracts && npm run build --workspace @chereta/api && npm run build --workspace @chereta/web",
+    "typecheck": "npm run typecheck --workspace @chereta/contracts && npm run typecheck --workspace @chereta/api && npm run typecheck --workspace @chereta/web",
+    "lint": "npm run lint --workspace @chereta/api && npm run lint --workspace @chereta/web",
+    "test": "npm run test --workspace @chereta/api",
+    "test:e2e": "npm run test:e2e --workspace @chereta/api",
+    "test:web": "npm run test --workspace @chereta/web",
+    "db:migrate": "npm run db:migrate --workspace @chereta/api",
+    "db:deploy": "npm run db:deploy --workspace @chereta/api",
+    "db:seed": "npm run db:seed --workspace @chereta/api",
+    "db:reset": "npm run db:reset --workspace @chereta/api",
+    "db:studio": "npm run db:studio --workspace @chereta/api",
+    "docker:up": "docker compose up -d postgres",
+    "docker:down": "docker compose down",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {}
+}

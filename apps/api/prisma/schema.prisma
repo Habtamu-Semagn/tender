@@ -1,0 +1,1172 @@
+// =============================================================================
+// Chereta — Prisma schema
+//
+// Conventions enforced here:
+//   * UUID primary keys everywhere.
+//   * All timestamps are stored in UTC as timestamptz; display conversion to
+//     Africa/Addis_Ababa happens in the presentation layer.
+//   * Monetary values use Decimal(18,2) plus an explicit currency code.
+//     Floating point is never used for money.
+//   * Deletes are restricted by default; soft deletion is used only where audit
+//     and retention requirements justify it (users, organizations, tenders).
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // url / shadowDatabaseUrl live in prisma.config.ts (Prisma 7 requirement).
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+/// Global platform role. Separate from organization membership.
+enum UserRole {
+  SUPPLIER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+/// Organization membership role. A user may belong to many organizations.
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  PUBLISHER
+  MEMBER
+}
+
+enum OrganizationVerificationStatus {
+  UNVERIFIED
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum OrganizationType {
+  SOLE_PROPRIETORSHIP
+  PRIVATE_LIMITED_COMPANY
+  SHARE_COMPANY
+  PARTNERSHIP
+  COOPERATIVE
+  NGO_ASSOCIATION
+  GOVERNMENT_AGENCY
+  INTERNATIONAL_ORGANIZATION
+  OTHER
+}
+
+enum MemberStatus {
+  INVITED
+  ACTIVE
+  REVOKED
+}
+
+enum TenderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  OPEN_FOR_SUBMISSION
+  SUBMISSION_CLOSED
+  OPENING_IN_PROGRESS
+  UNDER_EVALUATION
+  AWARDED
+  CANCELLED
+  ARCHIVED
+}
+
+enum ProcurementMethod {
+  OPEN_TENDER
+  RESTRICTED_TENDER
+  REQUEST_FOR_QUOTATION
+  REQUEST_FOR_PROPOSAL
+  DIRECT_PROCUREMENT
+  TWO_STAGE_TENDER
+  FRAMEWORK_AGREEMENT
+}
+
+enum TenderType {
+  GOODS
+  CONSTRUCTION_WORKS
+  CONSULTING_SERVICES
+  NON_CONSULTING_SERVICES
+  SUPPLIES
+  GENERAL_SERVICES
+  OTHER
+}
+
+/// Controls who may see the estimated budget.
+enum BudgetVisibility {
+  PUBLIC
+  PARTICIPANTS
+  PRIVATE
+}
+
+enum DocumentVisibility {
+  PUBLIC
+  PARTICIPANTS
+  PRIVATE
+}
+
+enum BidStatus {
+  DRAFT
+  SUBMITTED
+  WITHDRAWN
+  OPENED
+  UNDER_EVALUATION
+  EVALUATED
+  RECOMMENDED
+  ACCEPTED
+  REJECTED
+  AWARDED
+  UNSUCCESSFUL
+}
+
+enum EvaluationStage {
+  TECHNICAL
+  FINANCIAL
+  COMBINED
+}
+
+enum EvaluationStatus {
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  RECALLED
+  EXPIRED
+}
+
+/// Lifecycle of an award decision. Separate from the AwardDecision model.
+enum AwardDecisionStatus {
+  RECOMMENDED
+  APPROVED
+  REJECTED
+  PUBLISHED
+  REVOKED
+}
+
+enum ClarificationStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+  REJECTED
+}
+
+enum NotificationType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  ORGANIZATION_VERIFICATION_SUBMITTED
+  ORGANIZATION_VERIFICATION_APPROVED
+  ORGANIZATION_VERIFICATION_REJECTED
+  ORGANIZATION_INVITATION
+  TENDER_PUBLISHED
+  TENDER_AMENDED
+  TENDER_CANCELLED
+  TENDER_CLOSING_SOON
+  CLARIFICATION_ANSWERED
+  BID_SUBMITTED
+  BID_WITHDRAWN
+  BID_OPENED
+  EVALUATION_ASSIGNED
+  EVALUATION_SUBMITTED
+  AWARD_RECOMMENDED
+  AWARD_APPROVED
+  AWARD_PUBLISHED
+  ACCOUNT_SUSPENDED
+  SECURITY_ALERT
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  DEAD
+}
+
+enum AuditSeverity {
+  INFO
+  NOTICE
+  WARNING
+  CRITICAL
+}
+
+// -----------------------------------------------------------------------------
+// Users and authentication
+// -----------------------------------------------------------------------------
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  email         String     @unique
+  emailVerified Boolean    @default(false)
+  emailVerifiedAt DateTime? @db.Timestamptz(6)
+  passwordHash  String
+  firstName     String
+  lastName      String
+  middleName    String?
+  phone         String?
+  role          UserRole   @default(SUPPLIER)
+  status        UserStatus @default(ACTIVE)
+  /// Reserved for the deferred MFA enhancement; no migration churn when enabled.
+  mfaEnabled    Boolean    @default(false)
+  mfaSecret     String?
+  preferredLanguage String  @default("en")
+  preferredTimezone String   @default("Africa/Addis_Ababa")
+  lastLoginAt   DateTime?  @db.Timestamptz(6)
+  suspendedAt   DateTime?  @db.Timestamptz(6)
+  suspendedReason String?
+  deletedAt     DateTime?  @db.Timestamptz(6)
+  createdAt     DateTime   @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime   @updatedAt @db.Timestamptz(6)
+
+  refreshTokens        RefreshToken[]
+  emailTokens          EmailToken[]
+  memberships          OrganizationMember[]
+  verificationRequests OrganizationVerificationRequest[] @relation("VerificationReviewer")
+  documents            Document[]           @relation("DocumentUploader")
+  ownedTenders         Tender[]             @relation("TenderCreator")
+  amendments           TenderAmendment[]    @relation("AmendmentAuthor")
+  bids                 Bid[]                @relation("BidSubmitter")
+  bidRevisions         BidRevision[]        @relation("BidRevisionAuthor")
+  clarifications       ClarificationRequest[] @relation("ClarificationAsker")
+  clarificationResponses ClarificationResponse[] @relation("ClarificationResponder")
+  evaluationAssignments EvaluationAssignment[] @relation("Evaluator")
+  evaluationScores     EvaluationScore[]    @relation("ScoreAuthor")
+  evaluationComments   EvaluationComment[]  @relation("CommentAuthor")
+  conflictDeclarations ConflictOfInterest[] @relation("ConflictDeclarant")
+  awardRecommendations AwardRecommendation[] @relation("RecommendationAuthor")
+  awardDecisions       AwardDecision[]      @relation("AwardApprover")
+  notifications        Notification[]
+  savedTenders         SavedTender[]
+  auditLogs            AuditLog[]           @relation("AuditActor")
+  bidOpeningRecords    BidOpeningRecord[]   @relation("OpeningOperator")
+  auditLogTargets      AuditLog[]           @relation("AuditTarget")
+  adminActions         AdminAction[]
+
+  @@index([status, role])
+  @@index([createdAt])
+  @@map("users")
+}
+
+/// Refresh-token sessions. Tokens are stored as hashes, never in plaintext.
+model RefreshToken {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  tokenHash      String    @unique
+  expiresAt      DateTime  @db.Timestamptz(6)
+  revokedAt      DateTime? @db.Timestamptz(6)
+  revokedReason  String?
+  /// Rotation chain: the token that replaced this one.
+  replacedById   String?   @db.Uuid
+  replacedBy     RefreshToken? @relation("TokenRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replacedTokens RefreshToken[] @relation("TokenRotation")
+  userAgent      String?
+  ipAddress      String?
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Single-use, time-limited tokens for email verification and password reset.
+model EmailToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  tokenHash  String    @unique
+  purpose    String
+  expiresAt  DateTime  @db.Timestamptz(6)
+  consumedAt DateTime? @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+  @@map("email_tokens")
+}
+
+// -----------------------------------------------------------------------------
+// Organizations
+// -----------------------------------------------------------------------------
+
+model Organization {
+  id                   String                            @id @default(uuid()) @db.Uuid
+  registeredName       String
+  tradingName          String?
+  organizationType     OrganizationType                  @default(PRIVATE_LIMITED_COMPANY)
+  businessRegistrationNumber String?
+  /// Tax identification number. Private by default; never exposed publicly.
+  taxIdentificationNumber String?
+  /// Additional Ethiopia-specific, configurable classification fields.
+  licenseNumber        String?
+  procurementClassification String?
+  description          String?
+  email                String
+  phone                String
+  website              String?
+  addressLine          String?
+  subCity              String?
+  city                 String?
+  region               String?
+  countryCode          String                            @default("ET")
+  postalCode           String?
+  verificationStatus   OrganizationVerificationStatus    @default(UNVERIFIED)
+  verificationNotes    String?
+  verifiedAt           DateTime?                         @db.Timestamptz(6)
+  verifiedById         String?                           @db.Uuid
+  suspendedAt          DateTime?                         @db.Timestamptz(6)
+  suspensionReason     String?
+  deletedAt            DateTime?                         @db.Timestamptz(6)
+  createdAt            DateTime                          @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime                          @updatedAt @db.Timestamptz(6)
+
+  members              OrganizationMember[]
+  verificationRequests OrganizationVerificationRequest[]
+  tenders              Tender[]
+  bids                 Bid[]
+  evaluationAssignments EvaluationAssignment[] @relation("EvaluatorOrganization")
+  awards               AwardDecision[]        @relation("WinningOrganization")
+
+  @@unique([registeredName, countryCode])
+  @@index([verificationStatus])
+  @@index([city, region])
+  @@index([deletedAt])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  userId         String           @db.Uuid
+  role           OrganizationRole @default(MEMBER)
+  status         MemberStatus     @default(INVITED)
+  invitedById   String?          @db.Uuid
+  invitedAt      DateTime         @default(now()) @db.Timestamptz(6)
+  acceptedAt     DateTime?        @db.Timestamptz(6)
+  revokedAt      DateTime?        @db.Timestamptz(6)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// A user can hold only one membership row per organization.
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+  @@map("organization_members")
+}
+
+model OrganizationVerificationRequest {
+  id             String                            @id @default(uuid()) @db.Uuid
+  organizationId String                            @db.Uuid
+  status         OrganizationVerificationStatus    @default(PENDING)
+  submittedNotes String?
+  reviewNotes    String?
+  /// Immutable decision history: every decision is a new row or a recorded event.
+  decisionReason String?
+  reviewedById   String?                           @db.Uuid
+  submittedAt    DateTime                          @default(now()) @db.Timestamptz(6)
+  reviewedAt     DateTime?                         @db.Timestamptz(6)
+  createdAt      DateTime                          @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                          @updatedAt @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reviewedBy   User?        @relation("VerificationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  documents    Document[]   @relation("VerificationDocuments")
+
+  @@index([organizationId, status])
+  @@index([status, submittedAt])
+  @@map("organization_verification_requests")
+}
+
+// -----------------------------------------------------------------------------
+// Documents (shared storage metadata)
+// -----------------------------------------------------------------------------
+
+/// Metadata for every uploaded object. The bytes live in a private bucket and are
+/// only ever reached through short-lived signed URLs minted after authorization.
+model Document {
+  id               String             @id @default(uuid()) @db.Uuid
+  /// Server-generated storage key. Never derived from user input.
+  storageKey       String             @unique
+  originalFileName String
+  /// Content type detected by the server, not from the client.
+  contentType      String
+  sizeBytes        Int
+  /// SHA-256 of the stored bytes, used for integrity checks.
+  checksumSha256   String
+  uploadedById     String?            @db.Uuid
+  createdAt        DateTime           @default(now()) @db.Timestamptz(6)
+  deletedAt        DateTime?          @db.Timestamptz(6)
+
+  uploader            User?                            @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  verificationRequest OrganizationVerificationRequest? @relation("VerificationDocuments", fields: [verificationRequestId], references: [id])
+  verificationRequestId String?                         @db.Uuid
+  tenderAttachments   TenderAttachment[]
+  bidAttachments      BidAttachment[]
+  bidCompliance       BidDocumentCompliance[]
+  amendmentAttachments TenderAmendmentAttachment[]
+  clarificationAttachments ClarificationAttachment[]
+  evaluationEvidence   EvaluationEvidence[]
+
+  @@index([uploadedById])
+  @@index([verificationRequestId])
+  @@map("documents")
+}
+
+// -----------------------------------------------------------------------------
+// Tenders
+// -----------------------------------------------------------------------------
+
+model TenderCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  name        String
+  nameAmharic String?
+  description String?
+  parentId    String?  @db.Uuid
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  parent   TenderCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children TenderCategory[] @relation("CategoryTree")
+  tenders  Tender[]
+
+  @@index([isActive, sortOrder])
+  @@map("tender_categories")
+}
+
+model Tender {
+  id                    String            @id @default(uuid()) @db.Uuid
+  /// Human-facing unique reference, e.g. CHR-2026-000123.
+  referenceNumber       String            @unique
+  title                 String
+  slug                  String            @unique
+  description           String
+  scopeOfWork           String?
+  organizationId        String            @db.Uuid
+  createdById           String            @db.Uuid
+  categoryId            String?           @db.Uuid
+  procurementMethod     ProcurementMethod @default(OPEN_TENDER)
+  tenderType            TenderType        @default(GOODS)
+  status                TenderStatus      @default(DRAFT)
+
+  // --- Location (Ethiopia-aware, configurable) ---
+  locationDescription   String?
+  region                String?
+  city                  String?
+  subCity               String?
+
+  // --- Money (Decimal + explicit currency) ---
+  estimatedBudget       Decimal?          @db.Decimal(18, 2)
+  currency              String            @default("ETB")
+  budgetVisibility      BudgetVisibility  @default(PUBLIC)
+
+  // --- Eligibility (structured rows, not one JSON blob) ---
+  eligibilitySummary    String?
+
+  // --- Lifecycle timestamps (UTC) ---
+  publishedAt           DateTime?         @db.Timestamptz(6)
+  clarificationDeadline DateTime?         @db.Timestamptz(6)
+  openingAt             DateTime?         @db.Timestamptz(6)
+  submissionDeadline    DateTime?         @db.Timestamptz(6)
+  evaluationStartAt     DateTime?         @db.Timestamptz(6)
+  evaluationEndAt       DateTime?         @db.Timestamptz(6)
+  expectedAwardDate     DateTime?         @db.Timestamptz(6)
+  cancelledAt           DateTime?         @db.Timestamptz(6)
+  archivedAt            DateTime?         @db.Timestamptz(6)
+
+  // --- Contact / instructions ---
+  contactName           String?
+  contactEmail          String?
+  contactPhone          String?
+  clarificationInstructions String?
+
+  // --- Evaluation configuration ---
+  /// When false, the configured non-price rule drives the recommendation.
+  weightedScoringEnabled Boolean @default(true)
+
+  // --- Workflow policy flags ---
+  requiresSealedBids    Boolean          @default(true)
+  requiresTwoPartyOpening Boolean        @default(true)
+
+  // --- Amendment bookkeeping ---
+  amendmentCount        Int               @default(0)
+  /// Incremented on every published amendment; used for optimistic concurrency.
+  version               Int               @default(1)
+
+  // --- Audit ---
+  cancellationReason     String?
+  submissionOpenedAt     DateTime?        @db.Timestamptz(6)
+  createdAt             DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime          @updatedAt @db.Timestamptz(6)
+  deletedAt             DateTime?         @db.Timestamptz(6)
+
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy      User                    @relation("TenderCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  category       TenderCategory?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  attachments    TenderAttachment[]
+  eligibilityRequirements EligibilityRequirement[]
+  requiredDocuments       RequiredDocument[]
+  evaluationCriteria      EvaluationCriterion[]
+  amendments      TenderAmendment[]
+  bids            Bid[]
+  bidOpeningRecords BidOpeningRecord[]
+  evaluationAssignments EvaluationAssignment[]
+  clarifications  ClarificationRequest[]
+  awardRecommendations AwardRecommendation[]
+  awardDecisions  AwardDecision[]
+  savedBy        SavedTender[]
+  statusHistory  TenderStatusHistory[]
+
+  @@index([status, publishedAt])
+  @@index([status, submissionDeadline])
+  @@index([organizationId, status])
+  @@index([categoryId, status])
+  @@index([region, city])
+  @@index([slug])
+  @@index([publishedAt])
+  @@map("tenders")
+}
+
+/// Explicit, queryable tender lifecycle transitions. Every status change writes a row.
+model TenderStatusHistory {
+  id          String        @id @default(uuid()) @db.Uuid
+  tenderId    String        @db.Uuid
+  fromStatus  TenderStatus?
+  toStatus    TenderStatus
+  reason      String?
+  actorId     String?       @db.Uuid
+  createdAt   DateTime      @default(now()) @db.Timestamptz(6)
+
+  tender Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@index([tenderId, createdAt])
+  @@map("tender_status_history")
+}
+
+model TenderAttachment {
+  id           String             @id @default(uuid()) @db.Uuid
+  tenderId     String             @db.Uuid
+  documentId   String             @db.Uuid
+  label        String?
+  visibility   DocumentVisibility @default(PUBLIC)
+  sortOrder    Int                @default(0)
+  /// True when the attachment is mandatory for a compliant bid.
+  isRequired   Boolean            @default(false)
+  createdAt    DateTime           @default(now()) @db.Timestamptz(6)
+
+  tender   Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@unique([tenderId, documentId])
+  @@index([tenderId, sortOrder])
+  @@map("tender_attachments")
+}
+
+model EligibilityRequirement {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenderId    String   @db.Uuid
+  code        String
+  title       String
+  description String?
+  /// Category of check (e.g. LICENCE, EXPERIENCE, TURNOVER) — free-form but indexed.
+  requirementType String?
+  isMandatory Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  tender Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@unique([tenderId, code])
+  @@index([tenderId, sortOrder])
+  @@map("eligibility_requirements")
+}
+
+/// A document the bidder must supply (e.g. trade licence, tax clearance).
+model RequiredDocument {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenderId    String   @db.Uuid
+  code        String
+  title       String
+  description String?
+  isMandatory Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  tender          Tender           @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  bidDocumentCompliance BidDocumentCompliance[]
+
+  @@unique([tenderId, code])
+  @@index([tenderId, sortOrder])
+  @@map("required_documents")
+}
+
+model EvaluationCriterion {
+  id          String          @id @default(uuid()) @db.Uuid
+  tenderId    String          @db.Uuid
+  code        String
+  title       String
+  description String?
+  stage       EvaluationStage @default(TECHNICAL)
+  /// Weight in percentage points. Weights for a tender must sum to 100 when
+  /// weighted scoring is enabled.
+  weight      Decimal         @db.Decimal(6, 2)
+  /// Maximum attainable score for this criterion.
+  maxScore    Decimal         @db.Decimal(8, 2)
+  /// When true, failing this criterion disqualifies regardless of total.
+  isMandatory Boolean         @default(false)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(6)
+
+  tender  Tender            @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  scores  EvaluationScore[]
+
+  @@unique([tenderId, code])
+  @@index([tenderId, stage, sortOrder])
+  @@map("evaluation_criteria")
+}
+
+model TenderAmendment {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenderId       String   @db.Uuid
+  amendmentRef   String
+  version        Int
+  title          String
+  description    String
+  /// Structured summary of what changed, for the public amendment notice.
+  changesSummary String?
+  effectiveAt    DateTime @db.Timestamptz(6)
+  /// New deadline, when the amendment moves it.
+  newSubmissionDeadline DateTime? @db.Timestamptz(6)
+  newClarificationDeadline DateTime? @db.Timestamptz(6)
+  authorId       String   @db.Uuid
+  /// True once affected bidders have been notified.
+  notificationsSentAt DateTime? @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  tender      Tender                     @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  author      User                       @relation("AmendmentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  attachments TenderAmendmentAttachment[]
+
+  @@unique([tenderId, amendmentRef])
+  @@index([tenderId, version])
+  @@map("tender_amendments")
+}
+
+model TenderAmendmentAttachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  amendmentId String   @db.Uuid
+  documentId  String   @db.Uuid
+  label       String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  amendment TenderAmendment @relation(fields: [amendmentId], references: [id], onDelete: Cascade)
+  document  Document        @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@unique([amendmentId, documentId])
+  @@map("tender_amendment_attachments")
+}
+
+// -----------------------------------------------------------------------------
+// Bids (security-critical)
+// -----------------------------------------------------------------------------
+
+model Bid {
+  id                   String     @id @default(uuid()) @db.Uuid
+  tenderId             String     @db.Uuid
+  /// The organization submitting. Always derived server-side from membership,
+  /// never accepted from the request body.
+  organizationId       String     @db.Uuid
+  submittedById        String     @db.Uuid
+  submissionReference  String     @unique
+  status               BidStatus  @default(DRAFT)
+
+  // --- Confidential proposal contents (access-controlled) ---
+  technicalProposal    String?
+  financialProposal    String?
+  /// Offered price. Decimal + explicit currency; never a float.
+  offeredPrice         Decimal?   @db.Decimal(18, 2)
+  offeredCurrency      String?    @db.VarChar(3)
+  priceValidityDays    Int?
+
+  /// Server-set timestamp of submission. Client clocks are never trusted.
+  submittedAt          DateTime?  @db.Timestamptz(6)
+  withdrawnAt          DateTime?  @db.Timestamptz(6)
+  withdrawalReason     String?
+  /// Current revision number; increments on each accepted revision.
+  revisionNumber       Int        @default(0)
+  /// SHA-256 over the submitted attachment manifest + contents summary.
+  integrityHash        String?
+  openedAt             DateTime?  @db.Timestamptz(6)
+  evaluatedAt          DateTime?  @db.Timestamptz(6)
+  createdAt            DateTime   @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime   @updatedAt @db.Timestamptz(6)
+
+  tender         Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  submittedBy    User            @relation("BidSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  attachments    BidAttachment[]
+  revisions      BidRevision[]
+  documentCompliance BidDocumentCompliance[]
+  openingRecords BidOpeningRecord[]
+  evaluationScores EvaluationScore[]
+  evaluationComments EvaluationComment[]
+  awardRecommendations AwardRecommendation[]
+  awardDecisions  AwardDecision[] @relation("AwardedBid")
+
+  /// One active (non-withdrawn) bid per organization per tender. Withdrawn bids
+  /// keep their row for audit, so the constraint is enforced on
+  /// (tenderId, organizationId, revisionNumber) uniqueness plus a service-level
+  /// guard, because a partial unique index cannot be expressed in Prisma schema.
+  @@unique([tenderId, organizationId, revisionNumber])
+  @@index([tenderId, status])
+  @@index([organizationId, status])
+  @@index([submittedById])
+  @@index([submittedAt])
+  @@map("bids")
+}
+
+/// Immutable record of each submitted revision, preserving full history.
+model BidRevision {
+  id             String   @id @default(uuid()) @db.Uuid
+  bidId          String   @db.Uuid
+  revisionNumber Int
+  technicalProposal String?
+  financialProposal String?
+  offeredPrice   Decimal? @db.Decimal(18, 2)
+  offeredCurrency String? @db.VarChar(3)
+  /// Attachment manifest captured at revision time (keys + checksums + names).
+  attachmentManifest Json?
+  integrityHash String?
+  authorId       String   @db.Uuid
+  submittedAt    DateTime @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  bid    Bid  @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  author User @relation("BidRevisionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@unique([bidId, revisionNumber])
+  @@index([bidId, submittedAt])
+  @@map("bid_revisions")
+}
+
+model BidAttachment {
+  id          String             @id @default(uuid()) @db.Uuid
+  bidId       String             @db.Uuid
+  documentId  String             @db.Uuid
+  label       String?
+  /// Always PRIVATE in practice; kept explicit so policy can widen it later.
+  visibility  DocumentVisibility @default(PRIVATE)
+  isMandatory Boolean            @default(false)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(6)
+
+  bid      Bid      @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@unique([bidId, documentId])
+  @@index([bidId])
+  @@map("bid_attachments")
+}
+
+/// Which of the tender's required documents a bid supplied.
+model BidDocumentCompliance {
+  id                 String   @id @default(uuid()) @db.Uuid
+  bidId              String   @db.Uuid
+  requiredDocumentId String   @db.Uuid
+  documentId         String?  @db.Uuid
+  isProvided         Boolean  @default(false)
+  /// Populated during eligibility screening.
+  isCompliant        Boolean?
+  screeningNote      String?
+  screenedAt         DateTime? @db.Timestamptz(6)
+  createdAt          DateTime @default(now()) @db.Timestamptz(6)
+
+  bid              Bid              @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  requiredDocument RequiredDocument @relation(fields: [requiredDocumentId], references: [id], onDelete: Cascade)
+  document         Document?        @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@unique([bidId, requiredDocumentId])
+  @@index([bidId, isCompliant])
+  @@map("bid_document_compliance")
+}
+
+/// Audit record of a confidential bid opening: who opened what, when, and under
+/// what authorization.
+model BidOpeningRecord {
+  id             String     @id @default(uuid()) @db.Uuid
+  tenderId       String     @db.Uuid
+  bidId          String?    @db.Uuid
+  /// Null for a tender-level "opening started/confirmed" event.
+  operatorId     String     @db.Uuid
+  action         String
+  /// STARTED | CONFIRMED | ACCESSED | REJECTED_LATE
+  authorization  String
+  /// The policy that authorized this action at the time.
+  policySnapshot Json?
+  note           String?
+  createdAt      DateTime   @default(now()) @db.Timestamptz(6)
+
+  tender   Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  bid      Bid?   @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  operator User   @relation("OpeningOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+
+  @@index([tenderId, createdAt])
+  @@index([bidId])
+  @@index([operatorId])
+  @@map("bid_opening_records")
+}
+
+// -----------------------------------------------------------------------------
+// Evaluation and awards
+// -----------------------------------------------------------------------------
+
+model EvaluationAssignment {
+  id             String           @id @default(uuid()) @db.Uuid
+  tenderId       String           @db.Uuid
+  evaluatorId    String           @db.Uuid
+  /// Set when an organization member is assigned rather than an independent expert.
+  evaluatorOrganizationId String? @db.Uuid
+  stage          EvaluationStage  @default(TECHNICAL)
+  status         EvaluationStatus @default(ASSIGNED)
+  assignedById   String           @db.Uuid
+  assignedAt     DateTime         @default(now()) @db.Timestamptz(6)
+  dueAt          DateTime?        @db.Timestamptz(6)
+  submittedAt    DateTime?        @db.Timestamptz(6)
+  /// Independent total, computed server-side from the scores.
+  totalScore     Decimal?         @db.Decimal(10, 2)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(6)
+
+  tender               Tender               @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  evaluator            User                 @relation("Evaluator", fields: [evaluatorId], references: [id], onDelete: Restrict)
+  evaluatorOrganization Organization?       @relation("EvaluatorOrganization", fields: [evaluatorOrganizationId], references: [id], onDelete: SetNull)
+  scores               EvaluationScore[]
+  comments             EvaluationComment[]
+  conflictDeclarations ConflictOfInterest[]
+  evidence             EvaluationEvidence[]
+
+  @@unique([tenderId, evaluatorId, stage])
+  @@index([evaluatorId, status])
+  @@index([tenderId, stage])
+  @@map("evaluation_assignments")
+}
+
+model EvaluationScore {
+  id             String   @id @default(uuid()) @db.Uuid
+  assignmentId   String   @db.Uuid
+  criterionId    String   @db.Uuid
+  bidId          String   @db.Uuid
+  score          Decimal  @db.Decimal(8, 2)
+  /// Snapshot of the criterion's max score at scoring time.
+  maxScoreAtEntry Decimal @db.Decimal(8, 2)
+  weightAtEntry  Decimal  @db.Decimal(6, 2)
+  /// Server-computed weighted contribution: (score / maxScore) * weight.
+  weightedScore  Decimal  @db.Decimal(10, 4)
+  rationale      String?
+  authorId       String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  assignment EvaluationAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  criterion  EvaluationCriterion  @relation(fields: [criterionId], references: [id], onDelete: Restrict)
+  bid        Bid                  @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  author     User                 @relation("ScoreAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@unique([assignmentId, criterionId, bidId])
+  @@index([bidId])
+  @@index([criterionId])
+  @@map("evaluation_scores")
+}
+
+model EvaluationComment {
+  id           String   @id @default(uuid()) @db.Uuid
+  assignmentId String   @db.Uuid
+  bidId        String   @db.Uuid
+  criterionId  String?  @db.Uuid
+  body         String
+  /// Draft notes stay private until the assignment is submitted.
+  isDraft      Boolean  @default(true)
+  authorId     String   @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(6)
+
+  assignment EvaluationAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  bid        Bid                  @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  author     User                 @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([assignmentId, bidId])
+  @@index([bidId])
+  @@map("evaluation_comments")
+}
+
+model EvaluationEvidence {
+  id           String   @id @default(uuid()) @db.Uuid
+  assignmentId String   @db.Uuid
+  bidId        String   @db.Uuid
+  documentId   String   @db.Uuid
+  criterionId  String?  @db.Uuid
+  label        String?
+  note         String?
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+
+  assignment EvaluationAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  document   Document             @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@index([assignmentId, bidId])
+  @@map("evaluation_evidence")
+}
+
+model ConflictOfInterest {
+  id           String   @id @default(uuid()) @db.Uuid
+  assignmentId String   @db.Uuid
+  declarantId  String   @db.Uuid
+  statement    String
+  /// True when the declarant states a conflict exists.
+  hasConflict  Boolean  @default(false)
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(6)
+
+  assignment EvaluationAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  declarant  User                 @relation("ConflictDeclarant", fields: [declarantId], references: [id], onDelete: Restrict)
+
+  @@unique([assignmentId, declarantId])
+  @@map("conflict_of_interests")
+}
+
+model AwardRecommendation {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenderId       String   @db.Uuid
+  bidId          String   @db.Uuid
+  /// Method actually used, recorded so the calculation is auditable.
+  scoringMethod  String
+  totalScore     Decimal? @db.Decimal(10, 2)
+  rank           Int
+  rationale      String
+  isPrimary      Boolean  @default(false)
+  authorId       String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  tender Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  bid    Bid    @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  author User   @relation("RecommendationAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([tenderId, isPrimary])
+  @@index([bidId])
+  @@map("award_recommendations")
+}
+
+model AwardDecision {
+  id                 String        @id @default(uuid()) @db.Uuid
+  tenderId           String        @db.Uuid
+  bidId              String?       @db.Uuid
+  winningOrganizationId String?    @db.Uuid
+  decision           AwardDecisionStatus @default(RECOMMENDED)
+  awardedAmount      Decimal?      @db.Decimal(18, 2)
+  currency           String        @default("ETB")
+  /// Awarded price may differ from the offered price (negotiated value).
+  justification      String
+  contractReference  String?
+  approvedById       String        @db.Uuid
+  approvedAt         DateTime?     @db.Timestamptz(6)
+  publishedAt        DateTime?     @db.Timestamptz(6)
+  revokedAt          DateTime?     @db.Timestamptz(6)
+  revocationReason   String?
+  createdAt          DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @db.Timestamptz(6)
+
+  tender            Tender        @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  bid               Bid?          @relation("AwardedBid", fields: [bidId], references: [id], onDelete: SetNull)
+  winningOrganization Organization? @relation("WinningOrganization", fields: [winningOrganizationId], references: [id], onDelete: SetNull)
+  approvedBy        User          @relation("AwardApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+
+  @@index([tenderId, decision])
+  @@index([winningOrganizationId])
+  @@map("award_decisions")
+}
+
+// -----------------------------------------------------------------------------
+// Clarifications
+// -----------------------------------------------------------------------------
+
+model ClarificationRequest {
+  id            String             @id @default(uuid()) @db.Uuid
+  tenderId      String             @db.Uuid
+  askedById     String             @db.Uuid
+  question      String
+  status        ClarificationStatus @default(OPEN)
+  /// Whether the question and answer are visible to all bidders.
+  isPublic      Boolean            @default(true)
+  responseDeadline DateTime?       @db.Timestamptz(6)
+  answeredAt    DateTime?          @db.Timestamptz(6)
+  closedAt      DateTime?          @db.Timestamptz(6)
+  createdAt     DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime           @updatedAt @db.Timestamptz(6)
+
+  tender      Tender                  @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  askedBy     User                    @relation("ClarificationAsker", fields: [askedById], references: [id], onDelete: Cascade)
+  responses   ClarificationResponse[]
+  attachments ClarificationAttachment[]
+
+  @@index([tenderId, status])
+  @@index([askedById])
+  @@map("clarification_requests")
+}
+
+model ClarificationResponse {
+  id             String   @id @default(uuid()) @db.Uuid
+  requestId      String   @db.Uuid
+  responderId    String   @db.Uuid
+  answer         String
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  request   ClarificationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  responder User                 @relation("ClarificationResponder", fields: [responderId], references: [id], onDelete: Restrict)
+
+  @@index([requestId, createdAt])
+  @@map("clarification_responses")
+}
+
+model ClarificationAttachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  requestId   String   @db.Uuid
+  documentId  String   @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  request  ClarificationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  document Document             @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@unique([requestId, documentId])
+  @@map("clarification_attachments")
+}
+
+// -----------------------------------------------------------------------------
+// Notifications, saved tenders, audit, jobs
+// -----------------------------------------------------------------------------
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @db.Uuid
+  type       NotificationType
+  title      String
+  body       String
+  /// Deep link into the app.
+  actionUrl  String?
+  /// Related entity for in-app routing and de-duplication.
+  entityType String?
+  entityId   String?          @db.Uuid
+  readAt     DateTime?        @db.Timestamptz(6)
+  /// Set once the email leg has been attempted.
+  emailSentAt DateTime?       @db.Timestamptz(6)
+  createdAt  DateTime         @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([type])
+  @@map("notifications")
+}
+
+model SavedTender {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tenderId  String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tender Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenderId])
+  @@index([userId, createdAt])
+  @@map("saved_tenders")
+}
+
+model AuditLog {
+  id           String        @id @default(uuid()) @db.Uuid
+  /// Null for unauthenticated/system events.
+  actorId      String?       @db.Uuid
+  actorRole    String?
+  /// Dotted action name, e.g. "bid.submit", "admin.user.suspend".
+  action       String
+  entityType   String?
+  entityId     String?       @db.Uuid
+  /// User whose data was affected (may differ from the actor).
+  targetUserId String?       @db.Uuid
+  severity     AuditSeverity @default(INFO)
+  /// Non-sensitive metadata only. Never passwords, tokens, or document contents.
+  metadata     Json?
+  ipAddress    String?
+  userAgent    String?
+  requestId    String?
+  createdAt    DateTime      @default(now()) @db.Timestamptz(6)
+
+  actor      User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUser User? @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// Transactional-outbox style durable job queue. Written in the same transaction
+/// as the business change so a failed email never invalidates the business write.
+model BackgroundJob {
+  id           String    @id @default(uuid()) @db.Uuid
+  /// e.g. "notification.email", "notification.digest".
+  type         String
+  payload      Json
+  status       JobStatus @default(PENDING)
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(5)
+  /// When the job becomes eligible to run (exponential backoff).
+  runAfter     DateTime  @default(now()) @db.Timestamptz(6)
+  startedAt    DateTime? @db.Timestamptz(6)
+  completedAt  DateTime? @db.Timestamptz(6)
+  lastError    String?
+  /// Groups related jobs so a failure can be traced to its business event.
+  correlationId String?  @db.Uuid
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(6)
+
+  @@index([status, runAfter])
+  @@index([type, status])
+  @@index([correlationId])
+  @@map("background_jobs")
+}
+
+/// Records of administrative interventions for accountability.
+model AdminAction {
+  id          String   @id @default(uuid()) @db.Uuid
+  adminId     String   @db.Uuid
+  action      String
+  targetType  String
+  targetId    String   @db.Uuid
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  admin User @relation(fields: [adminId], references: [id], onDelete: Restrict)
+
+  @@index([adminId, createdAt])
+  @@index([targetType, targetId])
+  @@map("admin_actions")
+}
