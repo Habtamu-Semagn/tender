@@ -1,8 +1,8 @@
 # Chereta — Implementation Plan
 
-Status: **Phases 1–4 complete** (foundation, auth, organizations + documents,
-tenders). Backend builds clean, boots, and is verified end-to-end against a live
-PostgreSQL. Phase 5 (bids) is next.
+Status: **Phases 1–5 complete** (foundation, auth, organizations + documents,
+tenders, bids). Backend builds clean, boots, and is verified end-to-end against a
+live PostgreSQL. Phase 6 (evaluations + awards) is next.
 
 ## 1. Current project state
 
@@ -187,6 +187,18 @@ source.
   no extra DB work; a garbage token is ignored, never a 401.
 - **State machine** — 15 unit tests cover legal/illegal transitions, role
   permission, and the publish precondition gates (verified org, criteria, weights).
+- **Bids** — create/get draft, update contents, submit (sealed, 201 with an
+  integrity hash + receipt), withdraw before the deadline (fresh draft created
+  after), and `my-bids` dashboard. Security verified live: the submitting
+  organization is derived from membership (never the body); edit-after-submit and
+  re-submit both 409; a **publisher sees bid metadata only** — a leak scan of the
+  metadata response found none of `technicalProposal`, `offeredPrice`, the price
+  value, or proposal text; a non-member listing a tender's bids → 403; an
+  unauthenticated read → 401; submitting to a closed tender → 409 with a
+  server-time deadline message.
+- **Bid state machine** — 13 unit tests cover the confidential lifecycle
+  (contents sealed until OPENED), deadline enforcement, and role gates (a bidder
+  cannot open their own bid; only an admin awards).
 - **Seed** — `npm run db:seed` loads 10 categories, 4 users, 3 organizations, and
   5 realistic Ethiopian tenders with eligibility, required documents, and weighted
   evaluation criteria. Dev-only password `DevOnly!Password1`.

@@ -14,6 +14,7 @@ import { JwtAuthGuard } from "./auth/jwt-auth.guard.js";
 import { RolesGuard } from "./auth/roles.guard.js";
 import { OrganizationsModule } from "./organizations/organizations.module.js";
 import { TendersModule } from "./tenders/tenders.module.js";
+import { BidsModule } from "./bids/bids.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
 import { NotificationsModule } from "./notifications/notifications.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
@@ -94,6 +95,7 @@ import { RequestIdInterceptor } from "./common/interceptors/request-id.intercept
     AuthModule,
     OrganizationsModule,
     TendersModule,
+    BidsModule,
     DocumentsModule,
     NotificationsModule,
     JobsModule,
