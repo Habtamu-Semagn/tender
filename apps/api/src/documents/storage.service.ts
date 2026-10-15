@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
   DeleteObjectCommand,
@@ -380,11 +380,17 @@ export class StorageService {
 
   /** Strips path separators and control characters from a user-supplied filename. */
   private sanitizeFileName(name: string): string {
-    return name
-      .replace(/[/\\]/g, "_")
-      .replace(/[\u0000-\u001f\u007f]/g, "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(-180) || "document";
+    return (
+      name
+        .replace(/[/\\]/g, "_")
+        // Control characters (including NUL) are stripped deliberately: they can
+        // corrupt storage keys, logs, and HTTP headers. The eslint rule flags
+        // the literal, but removing them here is the point.
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\u0000-\u001f\u007f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(-180) || "document"
+    );
   }
 }

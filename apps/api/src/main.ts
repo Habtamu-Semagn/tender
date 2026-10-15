@@ -4,6 +4,7 @@ import { Logger, type INestApplication } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { Logger as PinoLogger } from "nestjs-pino";
+import { StandardSchemaValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
 import compression from "compression";
@@ -66,6 +67,17 @@ async function bootstrap(): Promise<void> {
   // A global exception filter needs no injected dependencies: it decides how
   // much detail to expose from NODE_ENV alone.
   app.useGlobalFilters(new AllExceptionsFilter());
+
+  // The Standard Schema pipe is what actually runs the Zod contracts attached
+  // to @Body/@Query/@Param. Without a global registration the `schema` metadata
+  // is stored but never consumed, so every route would accept unvalidated input
+  // and Prisma would surface raw enum/type errors as 500s. transform defaults to
+  // true, so coerced values (e.g. the string "2" -> number 2) reach the service.
+  app.useGlobalPipes(
+    new StandardSchemaValidationPipe({
+      errorHttpStatusCode: 400,
+    }),
+  );
 
   configureSwagger(app, config);
 

@@ -1,6 +1,8 @@
-# Chereta — Implementation Plan (Phase 1)
+# Chereta — Implementation Plan
 
-Status: **Phase 1 complete** (repository inspection + architecture decisions).
+Status: **Phases 1–4 complete** (foundation, auth, organizations + documents,
+tenders). Backend builds clean, boots, and is verified end-to-end against a live
+PostgreSQL. Phase 5 (bids) is next.
 
 ## 1. Current project state
 
@@ -152,3 +154,39 @@ per-role size caps, SHA-256 integrity hashes.
 4. **Legal review** — all retention, e-signature, procurement-threshold and
    tax-rate behaviour is configurable and unverified. The UI must not state that
    Chereta is government-affiliated or regulation-compliant.
+
+## 7. Verified end-to-end (live server on :4001, real PostgreSQL)
+
+Each item below was exercised over HTTP against a running API, not asserted from
+source.
+
+- **Request validation is real.** The Zod `StandardSchemaValidationPipe` is
+  registered globally in `main.ts`. Proven: `?limit=2` reaches the service as a
+  **number** (not the string `"2"`), `?limit=abc` returns **400** with a
+  field-level message (`"limit: Invalid input: expected number, received NaN"`),
+  and an unknown enum value returns 400 listing the valid options. Before this
+  was wired, the `schema` metadata was stored but never consumed — invalid input
+  slipped past Zod and surfaced as Prisma 500s. This is the single most important
+  correctness fix in the project: request validation is the primary defense
+  against malformed and malicious input.
+- **Auth** — register (Argon2id, masked phone in logs), login (access token,
+  `expiresIn: 900`), `/auth/me` with Bearer, 401 without a token.
+- **Organizations** — create (OWNER membership auto-created), `/organizations/me`
+  returns real data, admin-only endpoints 403 for a SUPPLIER, 401 unauthenticated.
+- **Documents** — magic-number content sniffing rejects a text file named `.pdf`
+  and an executable; a real PDF uploads with a SHA-256 checksum; signed download
+  serves the file with a valid token and 401s a tampered one.
+- **Tenders** — public list/search/status/region/budget filters; create draft
+  (unverified org → 403, verified org → 201); owner reads own **draft** (200)
+  while an anonymous caller gets 404; publish (DRAFT→PUBLISHED, appears publicly);
+  amend extends a deadline (201) but shortening is rejected (400); cancel;
+  a non-member creating a tender or reading an org's private list → 403.
+- **Public-route actor attachment** — a `@Public()` route stays reachable
+  anonymously *and* still resolves the caller when a valid token is present, so
+  "tender detail" reveals the caller's own drafts. An anonymous request performs
+  no extra DB work; a garbage token is ignored, never a 401.
+- **State machine** — 15 unit tests cover legal/illegal transitions, role
+  permission, and the publish precondition gates (verified org, criteria, weights).
+- **Seed** — `npm run db:seed` loads 10 categories, 4 users, 3 organizations, and
+  5 realistic Ethiopian tenders with eligibility, required documents, and weighted
+  evaluation criteria. Dev-only password `DevOnly!Password1`.

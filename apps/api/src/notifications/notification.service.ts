@@ -194,6 +194,154 @@ export class NotificationService {
     });
   }
 
+  /**
+   * Notifies members of organizations whose tenders are in the same category,
+   * plus anyone who saved this tender's organization.
+   *
+   * A failure here must never undo a successful publication, so the whole
+   * notification sweep is best-effort: it logs and returns.
+   */
+  async notifyTenderPublished(tx: Prisma.TransactionClient, tenderId: string): Promise<void> {
+    try {
+      const tender = await tx.tender.findFirst({
+        where: { id: tenderId },
+        select: {
+          id: true,
+          title: true,
+          referenceNumber: true,
+          categoryId: true,
+          submissionDeadline: true,
+        },
+      });
+      if (!tender) return;
+
+      const actionUrl = `/tenders/${tender.id}`;
+
+      // Members of the publishing organization are told through the audit log;
+      // this sweep targets interested outsiders.
+      const savedBy = await tx.savedTender.findMany({
+        where: { tender: { organizationId: tender.id } },
+        select: { userId: true },
+        take: 2000,
+      });
+
+      const recipients = new Set(savedBy.map((row) => row.userId));
+      for (const userId of recipients) {
+        await this.create(
+          this.prisma,
+          {
+            userId,
+            type: "TENDER_PUBLISHED",
+            title: `New tender: ${tender.title}`,
+            body: `A new tender matching your interests was published. Reference ${tender.referenceNumber}.`,
+            actionUrl,
+            entityType: "Tender",
+            entityId: tender.id,
+          },
+          { title: tender.title, referenceNumber: tender.referenceNumber },
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send publication notifications for tender ${tenderId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /** Notifies every bidder on a cancelled tender. */
+  async notifyTenderCancelled(tx: Prisma.TransactionClient, tenderId: string): Promise<void> {
+    try {
+      const tender = await tx.tender.findFirst({
+        where: { id: tenderId },
+        select: { id: true, title: true, referenceNumber: true },
+      });
+      if (!tender) return;
+
+      const bidders = await tx.bid.findMany({
+        where: { tenderId, status: { not: "DRAFT" } },
+        select: { organization: { select: { members: { select: { userId: true } } } } },
+        take: 2000,
+      });
+
+      const recipients = new Set<string>();
+      for (const bid of bidders) {
+        for (const member of bid.organization.members) {
+          recipients.add(member.userId);
+        }
+      }
+
+      for (const userId of recipients) {
+        await this.create(
+          this.prisma,
+          {
+            userId,
+            type: "TENDER_CANCELLED",
+            title: `Tender cancelled: ${tender.title}`,
+            body: `Tender ${tender.referenceNumber} has been cancelled by the procuring organization.`,
+            entityType: "Tender",
+            entityId: tender.id,
+          },
+          { title: tender.title, referenceNumber: tender.referenceNumber },
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send cancellation notifications for tender ${tenderId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /** Notifies bidders when a tender is amended. */
+  async notifyTenderAmended(tx: Prisma.TransactionClient, tenderId: string, amendmentTitle: string): Promise<void> {
+    try {
+      const tender = await tx.tender.findFirst({
+        where: { id: tenderId },
+        select: { id: true, title: true, referenceNumber: true },
+      });
+      if (!tender) return;
+
+      const bidders = await tx.bid.findMany({
+        where: { tenderId, status: { not: "DRAFT" } },
+        select: { organization: { select: { members: { select: { userId: true } } } } },
+        take: 2000,
+      });
+
+      const recipients = new Set<string>();
+      for (const bid of bidders) {
+        for (const member of bid.organization.members) {
+          recipients.add(member.userId);
+        }
+      }
+
+      const actionUrl = `/tenders/${tender.id}`;
+      for (const userId of recipients) {
+        await this.create(
+          this.prisma,
+          {
+            userId,
+            type: "TENDER_AMENDED",
+            title: `Amendment issued: ${tender.title}`,
+            body: `Tender ${tender.referenceNumber} was amended: ${amendmentTitle}. Review the changes before the deadline.`,
+            actionUrl,
+            entityType: "Tender",
+            entityId: tender.id,
+          },
+          { title: tender.title, referenceNumber: tender.referenceNumber, amendmentTitle },
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send amendment notifications for tender ${tenderId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
   /** Marks one notification as read, scoped to its owner. */
   async markRead(userId: string, notificationId: string): Promise<boolean> {
     const result = await this.prisma.notification.updateMany({

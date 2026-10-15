@@ -5,7 +5,7 @@ import { AppException } from "../common/errors/app.exception.js";
 import { IS_PUBLIC_KEY } from "./roles.guard.js";
 import { TokenService, type AccessTokenPayload } from "./token.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { type RequestActor, type RequestWithActor } from "../audit/audit.service.js";
+import { type RequestWithActor } from "../audit/audit.service.js";
 
 /**
  * Authenticates requests from either an HttpOnly session cookie or a Bearer
@@ -33,9 +33,23 @@ export class JwtAuthGuard {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<RequestWithActor>();
+
+    // A public route must stay reachable without credentials. But when a valid
+    // token IS supplied we still resolve and attach the principal, so endpoints
+    // such as "tender detail" can reveal the caller's own drafts/saved state
+    // while remaining fully open to anonymous traffic. A missing or invalid
+    // token on a public route is simply ignored — never a 401.
+    //
+    // The lookup is awaited (not fire-and-forget) so the principal is reliably
+    // present before the handler runs. Anonymous requests carry no token, so
+    // the common public path performs no extra work at all.
+    if (isPublic) {
+      await this.attachActorIfPresent(request);
+      return true;
+    }
+
     const token = this.extractToken(request);
 
     if (!token) {
@@ -87,6 +101,46 @@ export class JwtAuthGuard {
     };
 
     return true;
+  }
+
+  /**
+   * Best-effort principal attachment for public routes: resolves the caller
+   * when a valid token is present and silently does nothing otherwise. Any
+   * failure here is swallowed on purpose — a public endpoint must never turn an
+   * anonymous or malformed-credential request into an error.
+   */
+  private async attachActorIfPresent(request: RequestWithActor): Promise<void> {
+    const token = this.extractToken(request);
+    if (!token) return;
+
+    let payload: AccessTokenPayload;
+    try {
+      payload = this.tokens.verifyAccessToken(token);
+    } catch {
+      // Invalid or expired token on a public route: proceed anonymously.
+      return;
+    }
+
+    try {
+      const user = await this.prisma.user.findFirst({
+        where: { id: payload.sub, deletedAt: null, status: "ACTIVE" },
+        select: {
+          id: true,
+          role: true,
+          emailVerified: true,
+          status: true,
+        },
+      });
+      if (!user) return;
+      request.actor = {
+        userId: user.id,
+        role: user.role,
+        emailVerified: user.emailVerified,
+        status: user.status,
+      };
+    } catch {
+      // Ignore: an anonymous request must not be broken by a lookup error.
+    }
   }
 
   /** Accepts a Bearer header first, then the HttpOnly session cookie. */

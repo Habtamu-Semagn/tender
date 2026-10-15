@@ -32,7 +32,7 @@ export class AppException extends HttpException {
         code,
         message,
         ...(details ? { details } : {}),
-      } as unknown as HttpExceptionBody,
+      } as HttpExceptionBody,
       status,
     );
   }

@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { type DocumentPurpose, type DocumentResponse } from "@chereta/contracts";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { StorageService, type StoragePurpose } from "./storage.service.js";
+import { StorageService } from "./storage.service.js";
 import { AuditService, type RequestWithActor } from "../audit/audit.service.js";
 import { ErrorCode } from "../common/errors/error-codes.js";
 import { AppException } from "../common/errors/app.exception.js";
@@ -71,7 +71,8 @@ export class DocumentsService {
     }
 
     const stored = await this.storage.store({
-      purpose: purpose as StoragePurpose,
+      // DocumentPurpose and StoragePurpose are the same union; no cast needed.
+      purpose,
       buffer,
       originalFileName,
       declaredContentType,

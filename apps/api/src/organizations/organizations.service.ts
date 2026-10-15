@@ -17,7 +17,7 @@ import {
   type UpdateOrganizationInput,
   type VerificationDecisionInput,
 } from "@chereta/contracts";
-import { Prisma, type OrganizationRole } from "../generated/prisma/client.js";
+import { type OrganizationRole } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { OrganizationAccessService } from "./organization-access.service.js";
 import { NotificationService } from "../notifications/notification.service.js";

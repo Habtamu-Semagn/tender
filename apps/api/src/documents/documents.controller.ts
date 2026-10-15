@@ -13,7 +13,7 @@ import {
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
-import { type Request as ExpressRequest, type Response as ExpressResponse } from "express";
+import { type Response as ExpressResponse } from "express";
 import { documentPurposeSchema } from "@chereta/contracts";
 import { DocumentsService } from "./documents.service.js";
 import { Public } from "../auth/roles.guard.js";

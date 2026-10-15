@@ -39,7 +39,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       (request.headers["x-request-id"] as string | undefined) ??
       `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
-    const { status, code, message, details } = this.normalize(exception);
+    const { status, code, message, details } = this.normalize(
+      exception,
+      request.originalUrl ?? request.url,
+    );
 
     const body: ErrorResponseBody = {
       statusCode: status,
@@ -67,7 +70,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(status).json(body);
   }
 
-  private normalize(exception: unknown): {
+  private normalize(exception: unknown, host?: string): {
     status: number;
     code: string;
     message: string;
@@ -89,7 +92,28 @@ export class AllExceptionsFilter implements ExceptionFilter {
         };
       }
 
-      // Nest's own ValidationPipe emits an array of messages.
+      // Nest's StandardSchemaValidationPipe (and class-validator's
+      // ValidationPipe) throw BadRequestException with the issues collected
+      // under a `message` array: { message: ["field: reason", ...] }. Surface
+      // those per-field reasons so API clients can correct the exact input.
+      if (
+        typeof raw === "object" &&
+        raw !== null &&
+        Array.isArray((raw as { message?: unknown }).message)
+      ) {
+        const issues = (raw as { message: unknown[] }).message;
+        this.logger.debug(
+          `${host ?? ""} -> ${status} [VALIDATION_FAILED] ${JSON.stringify(issues).slice(0, 2000)}`,
+        );
+        return {
+          status,
+          code: ErrorCode.VALIDATION_FAILED,
+          message: "Validation failed",
+          details: { errors: issues },
+        };
+      }
+
+      // A bare array body (some pipes emit this directly).
       if (Array.isArray(raw)) {
         return {
           status,
@@ -100,6 +124,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
 
       if (typeof raw === "string") {
+        // A Standard Schema pipe surfaces Zod issues as a string body. Log the
+        // detail so an unexpected rejection can be traced to a specific field.
+        this.logger.error(
+          {
+            event: "validation_failed",
+            path: host,
+            issues: raw.slice(0, 2000),
+          },
+          "Request validation failed",
+        );
         return { status, code: this.defaultCodeFor(status), message: raw };
       }
 
@@ -111,12 +145,34 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return this.mapPrismaError(exception);
     }
 
+    // A Prisma *validation* error means the client sent a value the schema
+    // rejects (an unknown enum member, a wrong type). That is bad input, not a
+    // server fault, so it must not be reported as a 500 — a 500 would tell the
+    // client to retry something that can never succeed.
+    if (this.isPrismaValidationError(exception)) {
+      return {
+        status: HttpStatus.BAD_REQUEST,
+        code: ErrorCode.VALIDATION_FAILED,
+        message: "The submitted data is not valid for this resource.",
+      };
+    }
+
     // --- Anything else: never leak internals ---
     return {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       code: ErrorCode.INTERNAL_ERROR,
       message: "An unexpected error occurred. Please try again.",
     };
+  }
+
+  private isPrismaValidationError(exception: unknown): boolean {
+    return (
+      exception instanceof Error &&
+      (exception.name === "PrismaClientValidationError" ||
+        // Prisma 7 constructor names vary slightly between the generated client
+        // and the runtime package.
+        exception.constructor?.name === "PrismaClientValidationError")
+    );
   }
 
   private isPrismaKnownError(exception: unknown): exception is Prisma.PrismaClientKnownRequestError {
