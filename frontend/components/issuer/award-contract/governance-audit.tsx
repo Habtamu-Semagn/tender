@@ -1,0 +1,12 @@
+export function GovernanceAudit() {
+  return (
+    <div className="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+      <h3 className="font-headline-sm text-headline-sm text-on-surface font-bold mb-space-sm">Governance &amp; Audit Trail</h3>
+      <div className="space-y-space-md">
+        <div className="flex items-start gap-space-md"><div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary shrink-0 mt-0.5"><span className="material-symbols-outlined text-[18px]">how_to_reg</span></div><div><div className="flex items-center gap-space-xs"><span className="font-label-md text-label-md font-bold text-on-surface">Tender Evaluation Committee Endorsed</span><span className="bg-primary-fixed/40 text-primary text-[10px] font-bold px-1.5 py-0.2 rounded font-mono-data">5/5 SIGNED</span></div><p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Technical &amp; Financial evaluation minute ratified by ERA Panel Chair Eng. Hailu Zewde and 4 committee members.</p><div className="font-mono-data text-[11px] text-on-surface-variant mt-1">Certified on 14 Hidar 2016 • 16:30 EAT</div></div></div>
+        <div className="flex items-start gap-space-md"><div className="w-8 h-8 rounded-full bg-secondary-fixed/60 flex items-center justify-center text-secondary shrink-0 mt-0.5"><span className="material-symbols-outlined text-[18px]">verified</span></div><div><div className="flex items-center gap-space-xs"><span className="font-label-md text-label-md font-bold text-on-surface">FPPA Oversight Gate Cleared</span><span className="bg-secondary-fixed text-on-secondary-fixed text-[10px] font-bold px-1.5 py-0.2 rounded font-mono-data">AUDIT #4091</span></div><p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Federal Public Procurement &amp; Property Authority compliance automated checkpoint verified without discrepancy.</p><div className="font-mono-data text-[11px] text-on-surface-variant mt-1">Transaction Ref: PPA-GATEWAY-2024-ERA-058</div></div></div>
+      </div>
+      <div className="mt-space-md pt-space-sm bg-surface-container-low p-space-md rounded-xl flex items-center justify-between"><div className="flex items-center gap-space-xs"><span className="material-symbols-outlined text-primary text-[18px]">lock</span><span className="font-label-sm text-label-sm text-on-surface font-semibold">Immutable Blockchain Audit Ledger</span></div><span className="font-mono-data text-mono-data text-primary font-bold">ETH-eGP-V3</span></div>
+    </div>
+  );
+}
